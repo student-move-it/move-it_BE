@@ -219,7 +219,7 @@ class Service:
         if now.time().replace(tzinfo=None) >= time(23, 59, 59):
             fail(409, "DAY_CLOSED", "일일 초기화 중입니다. 다음 날짜에 등록해 주세요.")
 
-    # sourcePeriod 또는 현재 교시로 수정·복귀할 기존 이동 묶음을 찾습니다.
+    # sourcePeriod 또는 현재 교시로 수정할 기존 이동 묶음을 찾습니다.
     def target(self, db, now, room, student, source_period=None):
         if source_period is not None and source_period not in self.schedule.numbers:
             fail(400, "INVALID_REQUEST", "설정된 시간표에 없는 sourcePeriod입니다.")
@@ -253,22 +253,17 @@ class Service:
             self.check_capacity(db, room)
         return {"success": True, "message": "이동 현황이 수정되었습니다.", **({"movement": results[0]} if len(results) == 1 else {"movements": results})}
 
-    # 교시 미지정 시 학생의 당일 이동을 모두 삭제합니다. 일부 대상이 없으면 전체 롤백합니다.
-    def return_moves(self, guild, students, source_period=None):
+    # 현재 시각과 관계없이 학생의 당일 이동 전체를 삭제합니다. 일부 대상이 없으면 전체 롤백합니다.
+    def return_moves(self, guild, students):
         with self.transaction() as (db, now):
-            room = self.classroom(db, guild=guild)
+            self.classroom(db, guild=guild)
             for student in students:
-                if source_period is not None:
-                    # 기존 클라이언트가 교시를 보내면 해당 이동 묶음만 삭제합니다.
-                    row = self.target(db, now, room, student, source_period)
-                    db.execute("DELETE FROM movement WHERE registration_id=?", (row["id"],))
-                else:
-                    deleted = db.execute(
-                        "DELETE FROM movement WHERE guild_id=? AND student_number=? AND move_date=?",
-                        (guild, student, now.date().isoformat()),
-                    )
-                    if deleted.rowcount == 0:
-                        fail(404, "MOVEMENT_NOT_FOUND", "복귀 처리할 이동 정보가 없습니다.")
+                deleted = db.execute(
+                    "DELETE FROM movement WHERE guild_id=? AND student_number=? AND move_date=?",
+                    (guild, student, now.date().isoformat()),
+                )
+                if deleted.rowcount == 0:
+                    fail(404, "MOVEMENT_NOT_FOUND", "복귀 처리할 이동 정보가 없습니다.")
         return {"success": True, "message": "복귀 처리 성공"}
 
     # 음수와 정원 초과를 막고 날짜별 아날로그 인원을 저장합니다.

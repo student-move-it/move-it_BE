@@ -192,9 +192,9 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
         return service.edit_move(guildId, students, data, sourcePeriod)
 
     @app.delete("/move", dependencies=[Depends(authenticate)], response_model=SuccessResponse)
-    # 대상 학생의 이동 기록을 삭제하여 복귀 처리합니다.
-    def return_move(guildId: Annotated[str, Query(pattern=r"^[0-9]{1,32}$")], students=Depends(targets), sourcePeriod: Annotated[int | None, Query(ge=1)] = None):
-        return service.return_moves(guildId, students, sourcePeriod)
+    # 현재 교시와 관계없이 해당 서버·학생의 당일 이동 전체를 삭제합니다.
+    def return_move(guildId: Annotated[str, Query(pattern=r"^[0-9]{1,32}$")], students=Depends(targets)):
+        return service.return_moves(guildId, students)
 
     @app.patch("/analog-count", dependencies=[Depends(authenticate)], response_model=AnalogResponse)
     # 아날로그 이동 인원을 요청한 수만큼 변경합니다.
