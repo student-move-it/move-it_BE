@@ -1,0 +1,13 @@
+[
+  {"period": 5, "label": "5교시", "startTime": "13:30", "endTime": "14:20"},
+  {"period": null, "label": "쉬는시간", "startTime": "14:20", "endTime": "14:30"},
+  {"period": 6, "label": "6교시", "startTime": "14:30", "endTime": "15:20"},
+  {"period": null, "label": "쉬는시간", "startTime": "15:20", "endTime": "15:30"},
+  {"period": 7, "label": "7교시", "startTime": "15:30", "endTime": "16:20"},
+  {"period": null, "label": "쉬는시간", "startTime": "16:20", "endTime": "16:40"},
+  {"period": 8, "label": "8교시", "startTime": "16:40", "endTime": "17:30"},
+  {"period": null, "label": "석식시간", "startTime": "17:30", "endTime": "18:40"},
+  {"period": 9, "label": "9교시", "startTime": "18:40", "endTime": "19:30"},
+  {"period": null, "label": "쉬는시간", "startTime": "19:30", "endTime": "19:40"},
+  {"period": 10, "label": "10교시", "startTime": "19:40", "endTime": "20:30"}
+]
