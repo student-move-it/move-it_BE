@@ -79,7 +79,7 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 | --- | --- | --- |
 | PUT | `/classroom` | JSON: `guildId`, `classNumber`, `totalStudents` |
 | GET | `/classroom` | query: `guildId` |
-| POST | `/move` | JSON: `students`, `placeAndPeriod`; query: `guildId` 권장. 기존 `periodString`, `place` 형식도 지원 |
+| POST | `/move` | JSON: `students`, `placeAndPeriod`; query: `guildId` 필수. 기존 `periodString`, `place` 형식도 지원 |
 | PATCH | `/move` | query: `guildId`, `studentNumber`, 선택 `sourcePeriod`; JSON: `periodString`, `place` |
 | DELETE | `/move` | query: `guildId`, `studentNumber`, 선택 `sourcePeriod`; 본문 없음 |
 | PATCH | `/analog-count` | query: `guildId`; JSON: `change` |
@@ -93,7 +93,7 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 
 `GET /classroom`, `GET /student-counts`, `GET /movedStudents`는 원문 JSON 본문도 호환하지만 브라우저에서는 쿼리를 사용하세요. 수정/복귀는 `studentNumber=1215&studentNumber=1208`처럼 여러 학생을 지정할 수 있습니다. 수정의 기본 대상은 현재 교시의 이동입니다. 복귀는 교시 미지정 시 대상 학생의 당일 이동 전체를 삭제하므로 쉬는시간에도 가능합니다. 특정 이동만 수정·복귀하려면 `sourcePeriod=9`처럼 기존 이동의 교시를 지정합니다. 한 학생 수정 응답은 원문의 `movement`, 여러 학생은 `movements` 배열입니다.
 
-학번은 숫자 문자열입니다. `guildId` 없는 이동 등록은 앞 두 자리로 반을 찾습니다(`1215` → `12`). 명시적 `guildId`가 있으면 그 서버의 반을 사용하므로 다른 학번 규칙도 지원합니다. 학생의 소속/본인 확인은 하지 않습니다. 서버당 한 반, 반당 한 서버를 지원합니다.
+학번은 숫자 문자열입니다. 이동 등록의 쿼리 `guildId`는 필수입니다. 봇은 명령어가 실행된 디스코드 서버 ID를 매번 보내야 합니다. 백엔드는 교실 설정에 저장된 서버 ID로 반을 찾으며 학번 앞자리로 반을 추정하지 않습니다. 누락·형식 오류는 400, 미등록 서버는 404입니다. 학생의 소속/본인 확인은 하지 않습니다. 서버당 한 반, 반당 한 서버를 지원합니다.
 
 ### 호출 예시
 

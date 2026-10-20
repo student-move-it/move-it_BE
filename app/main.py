@@ -178,7 +178,7 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
 
     @app.post("/move", status_code=201, dependencies=[Depends(authenticate)], response_model=MoveResponse)
     # 통합 입력 또는 분리 입력을 받아 학생 이동을 등록합니다.
-    def create_move(data: Move | CombinedMove, guildId: Annotated[str | None, Query(pattern=r"^[0-9]{1,32}$")] = None):
+    def create_move(data: Move | CombinedMove, guildId: Annotated[str, Query(pattern=r"^[0-9]{1,32}$")]):
         if isinstance(data, CombinedMove):
             try:
                 data = data.to_move()

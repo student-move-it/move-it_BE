@@ -181,19 +181,15 @@ class Service:
             return {"success": True, "message": "교실 정보 조회 성공", "classNumber": room["class_number"], "totalStudents": room["total"]}
 
     # 중복과 정원을 검사하고 모든 학생을 한 트랜잭션으로 등록합니다.
-    def create_moves(self, data, guild=None):
+    def create_moves(self, data, guild):
         # 저장과 응답에 같은 정식 장소 이름을 사용합니다.
         data = data.model_copy(update={"place": normalize_place(data.place)})
         start, end = self.parse(data.periodString)
         with self.transaction() as (db, now):
             self.ensure_open(now)
-            rooms = {}
+            # 봇이 보낸 서버 ID로 등록된 반을 한 번 조회합니다. 학번으로 반을 추정하지 않습니다.
+            room = self.classroom(db, guild=guild)
             for student in data.students:
-                # guildId가 없으면 학번 앞 두 자리로 반을 찾습니다(1215 → 12). 지정하면 해당 서버의 반을 사용합니다.
-                if guild is None and len(student.studentNumber) < 3:
-                    fail(400, "INVALID_REQUEST", "반을 식별할 수 있도록 guildId를 지정해 주세요.")
-                room = self.classroom(db, guild=guild, class_number=int(student.studentNumber[:2]))
-                rooms[room["guild_id"]] = room
                 overlap = db.execute(
                     "SELECT 1 FROM movement_ranges WHERE guild_id=? AND student_number=? AND start_period<=? AND end_period>=?",
                     (room["guild_id"], student.studentNumber, end, start),
@@ -203,8 +199,7 @@ class Service:
                 self.insert_movement(db, room["guild_id"], student.studentNumber,
                                      student.name, now.date().isoformat(), start, end,
                                      data.periodString, data.place)
-            for room in rooms.values():
-                self.check_capacity(db, room)
+            self.check_capacity(db, room)
         return {"success": True, "message": "이동 현황이 등록되었습니다.", **data.model_dump()}
 
     @staticmethod
