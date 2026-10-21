@@ -143,12 +143,14 @@ events.addEventListener('snapshot', (event) => {
 
 ## 검증
 
-```powershell
-.\.venv\Scripts\python.exe -m pip install -r requirements-dev.txt
-.\.venv\Scripts\python.exe -m pytest -q
-```
+이 폴더는 GitHub 업로드·배포용입니다. 테스트 코드와 테스트용 패키지 목록은 상위 inp_BE 폴더에서 별도로 관리합니다.
 
-현재 시간표의 5~10교시 시작·종료 경계와 쉬는시간·석식, 재시작/날짜 변경, 일괄 처리 롤백, 동시 중복 요청, 인증, 실시간 스트림, 장소 약어 변환 및 목록 정렬을 검증합니다. 시간표가 변경되면 tests/test_api.py의 경계 기대값도 함께 갱신하세요.
+상위 폴더의 테스트를 현재 배포 코드로 실행하려면 move-it 폴더에서 다음 명령을 사용하세요.
+
+```powershell
+..\.venv\Scripts\python.exe -m pip install -r ..\requirements-dev.txt
+..\.venv\Scripts\python.exe -m pytest ..\tests -q
+```
 
 이 저장소에는 코드와 실행 문서를 포함합니다. Notion 원문과 실제 구현 사이의 추가 동작은 이 README의 API·데이터 처리 규칙을 확인하세요.
 
@@ -237,4 +239,4 @@ PostgreSQL에서는 트랜잭션 단위 advisory lock으로 날짜 초기화·�
 
 기존 데이터 이전은 별도 작업입니다. 우선 빈 Neon DB에 교실 정보를 새로 등록하는 배포 절차를 제공합니다. Preview와 Production이 같은 Neon DB를 쓰면 미리보기에서도 운영 데이터가 변경되므로 Preview에는 별도 Neon 브랜치를 권장합니다.
 
-선택적으로 tests/test_postgres_integration.py는 TEST_POSTGRES_URL에 직접 연결 URL(pooler가 아닌 URL)을 지정한 전용 테스트 DB에서 실행합니다. 임시 스키마를 만들고 제거하며 운영 Neon URL을 테스트 변수에 넣지 마세요. 연결 정보가 없으면 해당 테스트는 건너뜁니다.
+선택적으로 상위 폴더의 tests/test_postgres_integration.py는 TEST_POSTGRES_URL에 직접 연결 URL(pooler가 아닌 URL)을 지정한 전용 테스트 DB에서 실행합니다. 임시 스키마를 만들고 제거하며 운영 Neon URL을 테스트 변수에 넣지 마세요. 연결 정보가 없으면 해당 테스트는 건너뜁니다.
