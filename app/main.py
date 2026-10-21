@@ -5,6 +5,8 @@ import os
 import re
 import secrets
 import sqlite3
+import time as monotonic_time
+import psycopg
 from contextlib import asynccontextmanager, suppress
 from pathlib import Path
 from typing import Annotated
@@ -31,10 +33,20 @@ logger = logging.getLogger(__name__)
 
 # DB, 시간표, 인증 및 API 경로를 구성해 서버 앱을 만듭니다.
 def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None, admin_key=None):
-    service = Service(database or os.getenv("DATABASE_PATH", str(ROOT / "data" / "classroom.db")),
+    serverless = os.getenv("VERCEL") == "1"
+    database_target = database if database is not None else os.getenv("DATABASE_URL")
+    if database_target is None:
+        if serverless:
+            raise ValueError("Vercel에서는 PostgreSQL DATABASE_URL 설정이 필요합니다.")
+        database_target = os.getenv("DATABASE_PATH", str(ROOT / "data" / "classroom.db"))
+    if serverless and not str(database_target).startswith(("postgresql://", "postgres://")):
+        raise ValueError("Vercel에서는 SQLite 파일 대신 PostgreSQL을 사용해야 합니다.")
+    service = Service(database_target,
                       Schedule(schedule_path or os.getenv("SCHEDULE_PATH", str(ROOT / "config" / "schedule.json"))), clock)
     api_key = os.getenv("API_KEY", "") if api_key is None else api_key
     admin_key = os.getenv("ADMIN_API_KEY", "") if admin_key is None else admin_key
+    if serverless and (not api_key or not admin_key):
+        raise ValueError("공개 배포에는 서로 다른 API_KEY와 ADMIN_API_KEY가 필요합니다.")
     if bool(api_key) != bool(admin_key):
         raise ValueError("API_KEY와 ADMIN_API_KEY는 함께 설정해야 합니다.")
     if api_key and api_key == admin_key:
@@ -52,6 +64,10 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
     @asynccontextmanager
     # 시작 시 초기화를 확인하고 종료 시 백그라운드 작업을 정리합니다.
     async def lifespan(app):
+        if serverless:
+            # Vercel에서는 상시 작업 대신 DB 요청 시 날짜를 확인합니다.
+            yield
+            return
         await run_in_threadpool(service.tick)
         task = asyncio.create_task(maintenance())
         try:
@@ -130,6 +146,15 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
         if "locked" in str(exc).lower() or "busy" in str(exc).lower():
             return await api_error(request, APIError(503, "SERVICE_UNAVAILABLE", "서버가 사용 중입니다. 잠시 후 다시 시도해 주세요."))
         return await api_error(request, APIError(500, "INTERNAL_SERVER_ERROR", "데이터를 처리하지 못했습니다."))
+
+    @app.exception_handler(psycopg.Error)
+    async def postgres_error(request, exc):
+        # 연결 URL이나 비밀번호가 노출되지 않도록 예외 본문을 응답하지 않습니다.
+        logger.error("PostgreSQL 요청 실패: %s", type(exc).__name__)
+        temporary = isinstance(exc, (psycopg.OperationalError, psycopg.errors.LockNotAvailable, psycopg.errors.QueryCanceled))
+        status = 503 if temporary else 500
+        code = "SERVICE_UNAVAILABLE" if temporary else "INTERNAL_SERVER_ERROR"
+        return await api_error(request, APIError(status, code, "데이터베이스 요청을 처리하지 못했습니다. 잠시 후 다시 시도해 주세요."))
 
     @app.exception_handler(Exception)
     # 예상하지 못한 오류를 로그에 남기고 공통 오류 응답을 반환합니다.
@@ -237,15 +262,22 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
 
         # 첫 스냅샷을 보내고 1초마다 변경을 확인합니다. 15초마다 연결 유지 신호를 보냅니다.
         async def stream():
+            started = monotonic_time.monotonic()
             previous = json.dumps(initial, ensure_ascii=False)
             yield f"event: snapshot\ndata: {previous}\n\n"
             heartbeat = 0
             while not await request.is_disconnected():
                 await asyncio.sleep(1)
+                # Vercel 실행 제한 전에 종료하며 클라이언트가 재연결할 수 있게 합니다.
+                if serverless and monotonic_time.monotonic() - started >= 45:
+                    return
                 try:
                     snapshot = await run_in_threadpool(service.snapshot, classNumber)
                 except APIError as exc:
                     yield 'event: error\ndata: ' + json.dumps({"success": False, "error": {"code": exc.code, "message": exc.message}}, ensure_ascii=False) + '\n\n'
+                    return
+                except (psycopg.Error, sqlite3.Error):
+                    yield 'event: error\ndata: {"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"데이터베이스 연결을 확인해 주세요."}}\n\n'
                     return
                 current = json.dumps(snapshot, ensure_ascii=False)
                 if current != previous:

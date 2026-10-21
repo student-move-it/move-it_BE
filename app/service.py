@@ -2,9 +2,11 @@ import sqlite3
 from contextlib import contextmanager
 from datetime import time
 from pathlib import Path
+from threading import Lock
 
 from app.schedule import SEOUL, now_seoul
 from app.database import initialize
+from app.postgres import connect as connect_postgres, PostgresConnection, initialize_postgres, lock_transaction
 
 
 class APIError(Exception):
@@ -46,13 +48,28 @@ def normalize_place(place):
 class Service:
     def __init__(self, database, schedule, clock=now_seoul):
         self.database, self.schedule, self.clock = str(database), schedule, clock
-        Path(database).parent.mkdir(parents=True, exist_ok=True)
-        with self.connect() as db:
-            initialize(db, database, self.clock().astimezone(SEOUL).date().isoformat())
+        self.is_postgres = self.database.startswith(("postgresql://", "postgres://"))
+        self._schema_ready = False
+        self._schema_lock = Lock()
+        # PostgreSQL은 첫 DB 요청에서 초기화합니다. 빌드·문서 조회 중 접속하지 않습니다.
+        if not self.is_postgres:
+            Path(database).parent.mkdir(parents=True, exist_ok=True)
+            with self.connect() as db:
+                initialize(db, database, self.clock().astimezone(SEOUL).date().isoformat())
 
     @contextmanager
     # DB 연결과 외래키 검사를 활성화합니다. 성공 시 커밋, 오류 시 롤백 후 연결을 닫습니다.
     def connect(self):
+        if self.is_postgres:
+            with connect_postgres(self.database) as raw:
+                db = PostgresConnection(raw)
+                with self._schema_lock:
+                    if not self._schema_ready:
+                        initialize_postgres(db)
+                        raw.commit()
+                        self._schema_ready = True
+                yield db
+            return
         db = sqlite3.connect(self.database, timeout=10)
         db.row_factory = sqlite3.Row
         db.execute("PRAGMA foreign_keys=ON")
@@ -66,7 +83,10 @@ class Service:
     # 쓰기를 직렬화하고 날짜 변경 시 이동·아날로그 기록을 초기화합니다.
     def transaction(self):
         with self.connect() as db:
-            db.execute("BEGIN IMMEDIATE")
+            if self.is_postgres:
+                lock_transaction(db)
+            else:
+                db.execute("BEGIN IMMEDIATE")
             now = self.clock().astimezone(SEOUL)
             day = now.date().isoformat()
             old = db.execute("SELECT value FROM metadata WHERE key='day'").fetchone()
@@ -74,7 +94,7 @@ class Service:
             if old is None or old[0] != day or now.time().replace(tzinfo=None) >= time(23, 59, 59):
                 db.execute("DELETE FROM movement")
                 db.execute("DELETE FROM analog_count")
-                db.execute("INSERT OR REPLACE INTO metadata VALUES ('day', ?)", (day,))
+                db.execute("INSERT INTO metadata(key,value) VALUES ('day', ?) ON CONFLICT(key) DO UPDATE SET value=excluded.value", (day,))
             yield db, now
 
     # 등록된 반 목록을 번호순으로 반환합니다. 디스코드 서버 ID는 프론트에 필요하지 않습니다.
@@ -96,9 +116,9 @@ class Service:
     # 서버 ID 또는 반 번호로 교실과 당일 아날로그 인원을 조회합니다.
     def classroom(self, db, guild=None, class_number=None):
         if guild is not None:
-            row = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND a.count_date=(SELECT value FROM metadata WHERE key='day') WHERE c.guild_id=?", (guild,)).fetchone()
+            row = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND CAST(a.count_date AS TEXT)=(SELECT value FROM metadata WHERE key='day') WHERE c.guild_id=?", (guild,)).fetchone()
         else:
-            row = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND a.count_date=(SELECT value FROM metadata WHERE key='day') WHERE c.class_number=?", (class_number,)).fetchone()
+            row = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND CAST(a.count_date AS TEXT)=(SELECT value FROM metadata WHERE key='day') WHERE c.class_number=?", (class_number,)).fetchone()
         if row is None:
             fail(404, "CLASSROOM_NOT_FOUND", "등록되지 않은 반입니다.")
         return row
@@ -161,7 +181,7 @@ class Service:
     # 반 중복과 정원을 확인한 뒤 교실 설정을 등록하거나 변경합니다.
     def save_classroom(self, data):
         with self.transaction() as (db, now):
-            old = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND a.count_date=(SELECT value FROM metadata WHERE key='day') WHERE c.guild_id=?", (data.guildId,)).fetchone()
+            old = db.execute("SELECT c.*, c.total_students AS total, COALESCE(a.analog_count, 0) AS analog FROM classroom c LEFT JOIN analog_count a ON a.guild_id=c.guild_id AND CAST(a.count_date AS TEXT)=(SELECT value FROM metadata WHERE key='day') WHERE c.guild_id=?", (data.guildId,)).fetchone()
             duplicate = db.execute("SELECT guild_id FROM classroom WHERE class_number=? AND guild_id<>?", (data.classNumber, data.guildId)).fetchone()
             if duplicate:
                 fail(409, "CLASSROOM_ALREADY_EXISTS", "다른 서버에 이미 설정된 반입니다.")

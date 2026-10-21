@@ -1,6 +1,6 @@
 # 교실 이동 관리 Python 백엔드
 
-FastAPI + SQLite. Notion의 9개 REST API, 교시별 현황, 학생 수 계산, 실시간 SSE, 일일 초기화를 구현했습니다. 디스코드 봇과 전자칠판 프론트엔드는 이 서버에 연결하는 별도 클라이언트입니다.
+FastAPI + PostgreSQL(Neon) / 로컬 SQLite. Notion의 9개 REST API, 교시별 현황, 학생 수 계산, 실시간 SSE, 일일 초기화를 구현했습니다. 디스코드 봇과 전자칠판 프론트엔드는 이 서버에 연결하는 별도 클라이언트입니다.
 
 ## 실행 (Windows PowerShell, Python 3.11 이상)
 
@@ -33,12 +33,15 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 
 기존 DB는 서버 시작 시 원본을 `<DB 경로>.legacy-backup.db`로 백업한 뒤 트랜잭션으로 변환합니다. 변환 실패 시 원래 구조와 데이터를 유지하며 시작을 중단합니다. 이전 날짜 기록은 변환 후 기존 일일 초기화 규칙에 따라 제거됩니다. 서버를 중지한 상태에서 버전을 교체하세요.
 
-문서의 MySQL 문법 대신 SQLite를 실행 DB로 사용합니다. `docs/schema.mysql.sql`은 API 길이 제한과 추가 식별자를 반영한 MySQL 참고 DDL이며, MySQL 연결 기능은 포함하지 않습니다.
+로컬 기본 DB는 SQLite이고 DATABASE_URL을 설정한 배포 환경은 PostgreSQL을 사용합니다. `docs/schema.mysql.sql`은 API 길이 제한과 추가 식별자를 반영한 MySQL 참고 DDL이며, MySQL 연결 기능은 포함하지 않습니다.
+
+Vercel에서는 API_KEY와 ADMIN_API_KEY를 반드시 서로 다른 값으로 설정합니다. 로컬 개발의 인증 생략 옵션은 그대로 유지합니다.
 
 환경변수는 PowerShell에서 `$env:변수명 = '값'`으로 지정합니다. `.env` 자동 로딩은 하지 않습니다.
 
 | 변수 | 기본값 / 설명 |
 | --- | --- |
+| `DATABASE_URL` | PostgreSQL 연결 문자열. 설정하면 DATABASE_PATH보다 우선. 비밀값이므로 환경변수로만 지정 |
 | `DATABASE_PATH` | 프로젝트의 `data/classroom.db` |
 | `SCHEDULE_PATH` | 프로젝트의 `config/schedule.json` |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` (쉼표 구분) |
@@ -69,7 +72,7 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 
 - 시작 시각 포함, 종료 시각 제외. 목록에는 현재 이동과 오늘 아직 끝나지 않은 교시의 예약이 표시됩니다. 쉬는시간·석식시간에도 미래 예약을 표시하며, 현재 디지털 이동 인원은 0명으로 계산합니다. 수업 시작 전에는 오늘 예약 전체, 마지막 교시 종료 후에는 빈 목록을 반환합니다.
 - `6교시`, `6~8교시`, `6-8교시`를 지원합니다. 설정에 없는 교시나 역순 범위는 400입니다.
-- 23:59:59에 이동 기록과 아날로그 인원만 초기화합니다. 백그라운드 작업이 0.5초 간격으로 확인하므로 실제 실행은 약간 늦을 수 있습니다.
+- 23:59:59에 이동 기록과 아날로그 인원만 초기화합니다. 로컬 서버는 백그라운드 작업이 0.5초 간격으로 확인하므로 실제 실행은 약간 늦을 수 있습니다. Vercel은 상시 작업 없이 다음 데이터 요청에서 초기화합니다.
 - 서버가 꺼져 있었다면 재시작 또는 첫 데이터 접근 시 이전 날짜 데이터를 제거합니다. 교실 설정과 전체 학생 수는 유지합니다.
 - 아날로그 인원은 교시 범위 정보가 없어 수동 감소 또는 일일 초기화까지 유지합니다.
 
@@ -147,7 +150,7 @@ events.addEventListener('snapshot', (event) => {
 
 현재 시간표의 5~10교시 시작·종료 경계와 쉬는시간·석식, 재시작/날짜 변경, 일괄 처리 롤백, 동시 중복 요청, 인증, 실시간 스트림, 장소 약어 변환 및 목록 정렬을 검증합니다. 시간표가 변경되면 tests/test_api.py의 경계 기대값도 함께 갱신하세요.
 
-원문과 구현상 보완 사항은 [docs/spec-decisions.md](docs/spec-decisions.md)에 기록했습니다.
+이 저장소에는 코드와 실행 문서를 포함합니다. Notion 원문과 실제 구현 사이의 추가 동작은 이 README의 API·데이터 처리 규칙을 확인하세요.
 
 
 ## 반별 통합 조회
@@ -205,3 +208,33 @@ app/service.py의 normalize_place()에 약어와 정식 이름을 등록합니�
 /movedStudents, /classes/{classNumber}, /events의 movements.movedStudents는 현재 교시의 이동과 오늘의 미래 예약을 함께 반환합니다. 예를 들어 8교시에는 8~10교시 이동, 9교시 예약, 10교시 예약이 함께 표시됩니다. 쉬는시간·석식에는 아직 종료되지 않은 다음 교시 이후 예약을 반환합니다. 원래 등록한 startPeriod와 endPeriod를 유지하며 끝난 이동은 제외합니다.
 
 counts.movedStudents 및 /student-counts는 현재 교시의 디지털 이동 인원과 아날로그 인원만 계산합니다. 미래 예약은 인원에 포함하지 않습니다. 한 학생의 서로 다른 예약이 목록에 여러 건 나올 수 있으므로 프론트는 목록 길이로 현재 이동 인원을 계산하지 말고 counts를 사용해야 합니다. 미래 예약까지 포함하는 서버 정원 검사는 기존대로 유지합니다.
+
+
+## Vercel + Neon 배포
+
+API 경로와 요청·응답 형식은 유지합니다. DATABASE_URL이 있으면 PostgreSQL, 없으면 로컬 SQLite를 사용합니다. Vercel에서는 DATABASE_URL과 서로 다른 API_KEY, ADMIN_API_KEY가 필수이며 SQLite로 자동 대체하지 않습니다. 실제 연결 문자열은 GitHub나 채팅에 올리지 마세요.
+
+1. 이 README, requirements.txt, vercel.json, .python-version이 있는 폴더를 GitHub 저장소의 배포 루트로 사용합니다. 현재 로컬 위치는 inp_BE/move-it입니다. .venv, 실제 DB 파일, .env 및 비밀키는 커밋하지 않습니다.
+2. Vercel에서 New Project로 GitHub 저장소를 연결합니다. 저장소 루트에 app/가 있으면 Root Directory는 기본값을 사용합니다. move-it/이 저장소 하위 폴더라면 Root Directory를 move-it으로 지정합니다.
+3. Framework Preset은 FastAPI입니다. 기존 app/main.py를 자동 인식하며 별도 프론트 빌드·Output Directory를 지정하지 않습니다. 싱가포르 Neon 프로젝트에 맞춰 vercel.json의 region을 sin1로 설정했습니다.
+4. 환경변수에 DATABASE_URL(Neon Connect에서 복사한 PostgreSQL URL 전체), API_KEY(일반 봇·조회 키), ADMIN_API_KEY(별도 관리자 키), CORS_ORIGINS(프론트 실행 주소들, 쉼표 구분)를 설정합니다. URL에는 postgresql://부터 sslmode=require 등의 옵션까지 포함하고 psql 명령어 또는 따옴표는 넣지 않습니다. Neon의 pooled connection URL을 사용할 수 있습니다.
+5. Deploy 후 /health와 /docs를 확인합니다. /health는 프로세스 응답 확인만 하며 DB 접속 성공을 보장하지 않습니다.
+6. /classes를 X-API-Key 헤더와 함께 호출합니다. 첫 DB 요청에서 PostgreSQL 테이블과 뷰를 자동 생성합니다. 빈 DB이면 success=true, classes=[]입니다. 이 요청이 성공해야 DB 연결까지 확인된 것입니다.
+7. 관리자 키로 PUT /classroom을 호출해 실제 디스코드 서버 ID·반 번호·전체 인원을 다시 등록합니다. 기존 SQLite 파일은 자동 이전되지 않습니다.
+8. 봇과 프론트의 백엔드 주소를 배포된 HTTPS 주소로 바꿉니다. 모든 데이터 API에 X-API-Key가 필요합니다. 관리자 키는 프론트에 넣지 않습니다. 일반 키는 반별 권한 인증이 아니며 배포 보호가 켜져 있으면 외부 봇 접근 가능 여부도 확인해야 합니다.
+
+### Vercel 실행 규칙
+
+Vercel에서는 0.5초 주기 백그라운드 작업을 실행하지 않습니다. 날짜와 23:59:59 초기화 조건은 각 데이터 트랜잭션에서 확인합니다. 요청이 없는 동안 정확한 시각에 물리적으로 삭제하는 방식은 아니지만, 다음 현황 요청은 이전 날짜 이동이 없는 상태를 반환합니다. 교실 설정은 유지합니다.
+
+SSE는 Vercel에서 약 45초마다 연결을 정상 종료합니다. EventSource는 다시 연결할 수 있으며 사용자 정의 헤더가 필요한 인증 환경에서는 프론트의 fetch 스트림 재연결 처리가 필요합니다. 학교 테스트에서는 기존 GET /classes/{반번호}의 5초 주기 조회를 권장합니다. API 주소는 동일하게 유지합니다.
+
+PostgreSQL에서는 트랜잭션 단위 advisory lock으로 날짜 초기화·정원 검사·등록 ID 부여를 여러 인스턴스 사이에서도 직렬화합니다. 소규모 서비스의 정확성을 우선한 설계이며 대규모 처리에서는 반별 잠금 등 추가 개선이 필요합니다. 접속 정보는 응답·로그에 출력하지 않습니다.
+
+### 배포 전 로컬 검증
+
+실제 Neon 연결 문자열을 PowerShell의 DATABASE_URL 환경변수로 설정하고 필수 패키지를 설치한 뒤 기존 Uvicorn 명령으로 실행하면 로컬에서도 PostgreSQL을 사용합니다. .env 파일 자동 로딩은 지원하지 않습니다.
+
+기존 데이터 이전은 별도 작업입니다. 우선 빈 Neon DB에 교실 정보를 새로 등록하는 배포 절차를 제공합니다. Preview와 Production이 같은 Neon DB를 쓰면 미리보기에서도 운영 데이터가 변경되므로 Preview에는 별도 Neon 브랜치를 권장합니다.
+
+선택적으로 tests/test_postgres_integration.py는 TEST_POSTGRES_URL에 직접 연결 URL(pooler가 아닌 URL)을 지정한 전용 테스트 DB에서 실행합니다. 임시 스키마를 만들고 제거하며 운영 Neon URL을 테스트 변수에 넣지 마세요. 연결 정보가 없으면 해당 테스트는 건너뜁니다.

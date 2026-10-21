@@ -1,4 +1,4 @@
-"""Notion ERD를 SQLite에 적용하고 기존 DB를 트랜잭션으로 변환합니다."""
+"""로컬 SQLite 초기화·기존 DB 변환. Neon용 초기화는 postgres.py에서 처리합니다."""
 import sqlite3
 from pathlib import Path
 
