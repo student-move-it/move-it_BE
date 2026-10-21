@@ -239,20 +239,24 @@ class Service:
         if now.time().replace(tzinfo=None) >= time(23, 59, 59):
             fail(409, "DAY_CLOSED", "일일 초기화 중입니다. 다음 날짜에 등록해 주세요.")
 
-    # sourcePeriod 또는 현재 교시로 수정할 기존 이동 묶음을 찾습니다.
-    def target(self, db, now, room, student, source_period=None):
+    # 입력 범위와 겹치는 현재·미래 이동을 찾습니다. 기존 sourcePeriod 선택도 지원합니다.
+    def target(self, db, now, room, student, start, end, source_period=None):
         if source_period is not None and source_period not in self.schedule.numbers:
             fail(400, "INVALID_REQUEST", "설정된 시간표에 없는 sourcePeriod입니다.")
-        period = source_period if source_period is not None else self.schedule.current(now).get("period")
-        if period not in self.schedule.numbers:
-            fail(404, "MOVEMENT_NOT_FOUND", "현재 교시에 처리할 이동 정보가 없습니다. sourcePeriod를 지정해 주세요.")
-        row = db.execute(
-            "SELECT * FROM movement_ranges WHERE guild_id=? AND student_number=? AND start_period<=? AND end_period>=?",
-            (room["guild_id"], student, period, period),
-        ).fetchone()
-        if row is None:
-            fail(404, "MOVEMENT_NOT_FOUND", "처리할 이동 정보가 없습니다.")
-        return row
+        rows = [row for row in self.visible_movements(db, room["guild_id"], now)
+                if row["student_number"] == student]
+        if source_period is not None:
+            rows = [row for row in rows if row["start_period"] <= source_period <= row["end_period"]]
+        else:
+            remaining = [slot["period"] for slot in self.schedule.slots
+                         if slot.get("period") is not None
+                         and time.fromisoformat(slot["endTime"]) > now.time().replace(tzinfo=None)
+                         and start <= slot["period"] <= end]
+            rows = [row for row in rows
+                    if any(row["start_period"] <= period <= row["end_period"] for period in remaining)]
+        if not rows:
+            fail(404, "MOVEMENT_NOT_FOUND", "입력한 교시와 겹치는 현재 또는 미래 이동 정보가 없습니다.")
+        return rows
 
     # 기존 이동 교시와 장소를 수정합니다. 한 대상이라도 실패하면 전체 변경을 취소합니다.
     def edit_move(self, guild, students, data, source_period=None):
@@ -263,10 +267,12 @@ class Service:
         with self.transaction() as (db, now):
             room = self.classroom(db, guild=guild)
             for student in students:
-                row = self.target(db, now, room, student, source_period)
-                if db.execute("SELECT 1 FROM movement_ranges WHERE guild_id=? AND student_number=? AND id<>? AND start_period<=? AND end_period>=?", (guild, student, row["id"], end, start)).fetchone():
+                rows = self.target(db, now, room, student, start, end, source_period)
+                for selected in rows:
+                    db.execute("DELETE FROM movement WHERE registration_id=?", (selected["id"],))
+                row = rows[0]
+                if db.execute("SELECT 1 FROM movement_ranges WHERE guild_id=? AND student_number=? AND start_period<=? AND end_period>=?", (guild, student, end, start)).fetchone():
                     fail(409, "MOVEMENT_ALREADY_EXISTS", "해당 교시에 이미 이동 등록된 학생이 있습니다.")
-                db.execute("DELETE FROM movement WHERE registration_id=?", (row["id"],))
                 self.insert_movement(db, guild, student, row["name"], row["day"],
                                      start, end, data.periodString, data.place, row["id"])
                 results.append({"studentNumber": student, "name": row["name"], **data.model_dump()})
