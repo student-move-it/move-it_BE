@@ -1,11 +1,8 @@
-import sqlite3
 from contextlib import contextmanager
 from datetime import time
-from pathlib import Path
 from threading import Lock
 
 from app.schedule import SEOUL, now_seoul
-from app.database import initialize
 from app.postgres import connect as connect_postgres, PostgresConnection, initialize_postgres, lock_transaction
 
 
@@ -48,45 +45,28 @@ def normalize_place(place):
 class Service:
     def __init__(self, database, schedule, clock=now_seoul):
         self.database, self.schedule, self.clock = str(database), schedule, clock
-        self.is_postgres = self.database.startswith(("postgresql://", "postgres://"))
+        if not self.database.startswith(("postgresql://", "postgres://")):
+            raise ValueError("DATABASE_URL에는 PostgreSQL 연결 문자열을 입력해 주세요.")
         self._schema_ready = False
         self._schema_lock = Lock()
-        # PostgreSQL은 첫 DB 요청에서 초기화합니다. 빌드·문서 조회 중 접속하지 않습니다.
-        if not self.is_postgres:
-            Path(database).parent.mkdir(parents=True, exist_ok=True)
-            with self.connect() as db:
-                initialize(db, database, self.clock().astimezone(SEOUL).date().isoformat())
 
     @contextmanager
-    # DB 연결과 외래키 검사를 활성화합니다. 성공 시 커밋, 오류 시 롤백 후 연결을 닫습니다.
+    # 첫 DB 요청에서 테이블을 준비합니다. 성공 시 커밋, 오류 시 롤백하고 연결을 닫습니다.
     def connect(self):
-        if self.is_postgres:
-            with connect_postgres(self.database) as raw:
-                db = PostgresConnection(raw)
-                with self._schema_lock:
-                    if not self._schema_ready:
-                        initialize_postgres(db)
-                        raw.commit()
-                        self._schema_ready = True
-                yield db
-            return
-        db = sqlite3.connect(self.database, timeout=10)
-        db.row_factory = sqlite3.Row
-        db.execute("PRAGMA foreign_keys=ON")
-        try:
-            with db:
-                yield db
-        finally:
-            db.close()
+        with connect_postgres(self.database) as raw:
+            db = PostgresConnection(raw)
+            with self._schema_lock:
+                if not self._schema_ready:
+                    initialize_postgres(db)
+                    raw.commit()
+                    self._schema_ready = True
+            yield db
 
     @contextmanager
     # 쓰기를 직렬화하고 날짜 변경 시 이동·아날로그 기록을 초기화합니다.
     def transaction(self):
         with self.connect() as db:
-            if self.is_postgres:
-                lock_transaction(db)
-            else:
-                db.execute("BEGIN IMMEDIATE")
+            lock_transaction(db)
             now = self.clock().astimezone(SEOUL)
             day = now.date().isoformat()
             old = db.execute("SELECT value FROM metadata WHERE key='day'").fetchone()

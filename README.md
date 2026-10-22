@@ -1,19 +1,20 @@
 # 교실 이동 관리 Python 백엔드
 
-FastAPI + PostgreSQL(Neon) / 로컬 SQLite. Notion의 9개 REST API, 교시별 현황, 학생 수 계산, 실시간 SSE, 일일 초기화를 구현했습니다. 디스코드 봇과 전자칠판 프론트엔드는 이 서버에 연결하는 별도 클라이언트입니다.
+FastAPI + PostgreSQL(Neon). Notion의 9개 REST API, 교시별 현황, 학생 수 계산, 실시간 SSE, 일일 초기화를 구현했습니다. 디스코드 봇과 전자칠판 프론트엔드는 이 서버에 연결하는 별도 클라이언트입니다.
 
 ## 실행 (Windows PowerShell, Python 3.11 이상)
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -r requirements.txt
+$env:DATABASE_URL="Neon에서 복사한 PostgreSQL 연결 문자열"
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 - API 문서: http://127.0.0.1:8000/docs
 - OpenAPI: http://127.0.0.1:8000/openapi.json
 - 상태 확인: http://127.0.0.1:8000/health
-- 데이터는 `data/classroom.db`에 보존됩니다. 실행 위치와 무관하게 프로젝트 내 경로를 사용합니다.
+- 데이터는 DATABASE_URL이 가리키는 Neon PostgreSQL에 저장됩니다. PC에서 실행할 때도 연결 문자열이 필수이며 로컬 DB 파일은 생성하지 않습니다.
 
 Swagger에는 명세의 9개 REST API와 추가 반 목록·통합 조회 API, SSE 및 상태 확인 경로가 표시됩니다. 성공 응답 모델과 공통 오류 모델도 확인할 수 있습니다. 입력 검증 오류는 실제 동작과 동일하게 `400`으로 문서화하며, 교실 최초 설정의 `201` 및 SSE의 `text/event-stream`도 구분합니다.
 
@@ -25,7 +26,7 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 
 ### 데이터베이스 구조
 
-[Notion ERD](https://app.notion.com/p/3e071cdf7d7d8036bf2cef004a619ce6)의 세 테이블 구조를 SQLite에 적용했습니다.
+[Notion ERD](https://app.notion.com/p/3e071cdf7d7d8036bf2cef004a619ce6)의 세 테이블 구조를 PostgreSQL에 적용했습니다.
 
 - `classroom`: `guild_id`, `class_number`, `total_students`
 - `movement`: 학생·날짜·교시별 한 행. `6~8교시`는 6, 7, 8교시의 세 행으로 저장합니다. 서버·학번·날짜·교시의 UNIQUE 제약으로 중복을 차단합니다.
@@ -33,9 +34,8 @@ API 키와 관리자 키를 같은 값으로 설정하면 권한을 구분할 �
 
 `registration_id`와 `period_string`은 범위 이동 전체의 수정·복귀와 원래 입력 보존을 위해 추가했습니다. `movement_ranges`는 이를 묶어서 기존 API 응답을 만드는 조회 뷰이며, `metadata`는 일일 초기화 기준 날짜를 저장합니다. 반당 서버 하나라는 기존 규칙에 따라 반 번호의 UNIQUE 제약도 유지합니다.
 
-기존 DB는 서버 시작 시 원본을 `<DB 경로>.legacy-backup.db`로 백업한 뒤 트랜잭션으로 변환합니다. 변환 실패 시 원래 구조와 데이터를 유지하며 시작을 중단합니다. 이전 날짜 기록은 변환 후 기존 일일 초기화 규칙에 따라 제거됩니다. 서버를 중지한 상태에서 버전을 교체하세요.
+테이블과 조회 뷰는 첫 DB 요청에서 준비합니다. 기존 Neon 데이터는 유지하며, 로컬 DB 변환·백업 기능은 사용하지 않습니다.
 
-로컬 기본 DB는 SQLite이고 DATABASE_URL을 설정한 배포 환경은 PostgreSQL을 사용합니다. `docs/schema.mysql.sql`은 API 길이 제한과 추가 식별자를 반영한 MySQL 참고 DDL이며, MySQL 연결 기능은 포함하지 않습니다.
 
 Vercel에서는 API_KEY와 ADMIN_API_KEY를 반드시 서로 다른 값으로 설정합니다. 로컬 개발의 인증 생략 옵션은 그대로 유지합니다.
 
@@ -43,8 +43,7 @@ Vercel에서는 API_KEY와 ADMIN_API_KEY를 반드시 서로 다른 값으로 �
 
 | 변수 | 기본값 / 설명 |
 | --- | --- |
-| `DATABASE_URL` | PostgreSQL 연결 문자열. 설정하면 DATABASE_PATH보다 우선. 비밀값이므로 환경변수로만 지정 |
-| `DATABASE_PATH` | 프로젝트의 `data/classroom.db` |
+| `DATABASE_URL` | 필수 PostgreSQL 연결 문자열. 비밀값이므로 환경변수로만 지정 |
 | `SCHEDULE_PATH` | 프로젝트의 `config/schedule.json` |
 | `CORS_ORIGINS` | `http://localhost:3000,http://localhost:5173` (쉼표 구분) |
 | `API_KEY` | 미설정: 로컬 개발용 인증 비활성화. 설정하면 일반 API의 `X-API-Key` |
@@ -138,7 +137,7 @@ events.addEventListener('snapshot', (event) => {
 
 - 여러 학생의 등록·수정·복귀는 하나의 트랜잭션입니다. 한 명이라도 실패하면 전체 요청이 취소됩니다.
 - 동일 학생의 겹치는 교시는 409, 겹치지 않는 교시는 여러 건 등록 가능합니다.
-- SQLite 쓰기 트랜잭션으로 동시 요청의 중복 등록과 인원 초과를 방지합니다.
+- PostgreSQL 트랜잭션 잠금으로 동시 요청의 중복 등록과 인원 초과를 방지합니다.
 - 디지털 + 아날로그가 전체 인원을 넘지 않도록 예약된 모든 교시를 검사합니다. 미래 교시의 인원 초과도 거절합니다.
 - 끝난 이동은 표시 목록에서 제외합니다. 다만 그 학생의 다른 미래 예약은 계속 표시합니다. 이동 인원은 현재 교시만 기준으로 집계하며 기록은 일일 초기화 때 삭제합니다.
 - 공통 오류: `{"success":false,"error":{"code":"...","message":"..."}}`. 입력 오류는 명세대로 422 대신 400입니다.
@@ -147,11 +146,11 @@ events.addEventListener('snapshot', (event) => {
 
 이 폴더는 GitHub 업로드·배포용입니다. 테스트 코드와 테스트용 패키지 목록은 상위 inp_BE 폴더에서 별도로 관리합니다.
 
-상위 폴더의 테스트를 현재 배포 코드로 실행하려면 move-it 폴더에서 다음 명령을 사용하세요.
+상위 폴더의 기존 SQLite 기반 test_api.py·test_database.py는 이전 구현용입니다. 현재 PostgreSQL 코드의 테스트를 실행하려면 move-it 폴더에서 다음 명령을 사용하세요.
 
 ```powershell
 ..\.venv\Scripts\python.exe -m pip install -r ..\requirements-dev.txt
-..\.venv\Scripts\python.exe -m pytest ..\tests -q
+..\.venv\Scripts\python.exe -m pytest ..\tests/test_postgres_runtime.py ..\tests/test_postgres_integration.py -q
 ```
 
 이 저장소에는 코드와 실행 문서를 포함합니다. Notion 원문과 실제 구현 사이의 추가 동작은 이 README의 API·데이터 처리 규칙을 확인하세요.
@@ -216,7 +215,7 @@ counts.movedStudents 및 /student-counts는 현재 교시의 디지털 이동 �
 
 ## Vercel + Neon 배포
 
-API 경로와 요청·응답 형식은 유지합니다. DATABASE_URL이 있으면 PostgreSQL, 없으면 로컬 SQLite를 사용합니다. Vercel에서는 DATABASE_URL과 서로 다른 API_KEY, ADMIN_API_KEY가 필수이며 SQLite로 자동 대체하지 않습니다. 실제 연결 문자열은 GitHub나 채팅에 올리지 마세요.
+API 경로와 요청·응답 형식은 유지합니다. 실행 환경과 관계없이 DATABASE_URL로 PostgreSQL에 연결하며, 값이 없거나 PostgreSQL URL이 아니면 시작을 중단합니다. Vercel에서는 서로 다른 API_KEY, ADMIN_API_KEY도 필수입니다. 실제 연결 문자열은 GitHub나 채팅에 올리지 마세요.
 
 1. 이 README, requirements.txt, vercel.json, .python-version이 있는 폴더를 GitHub 저장소의 배포 루트로 사용합니다. 현재 로컬 위치는 inp_BE/move-it입니다. .venv, 실제 DB 파일, .env 및 비밀키는 커밋하지 않습니다.
 2. Vercel에서 New Project로 GitHub 저장소를 연결합니다. 저장소 루트에 app/가 있으면 Root Directory는 기본값을 사용합니다. move-it/이 저장소 하위 폴더라면 Root Directory를 move-it으로 지정합니다.

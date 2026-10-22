@@ -4,7 +4,6 @@ import logging
 import os
 import re
 import secrets
-import sqlite3
 import time as monotonic_time
 import psycopg
 from contextlib import asynccontextmanager, suppress
@@ -35,12 +34,10 @@ logger = logging.getLogger(__name__)
 def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None, admin_key=None):
     serverless = os.getenv("VERCEL") == "1"
     database_target = database if database is not None else os.getenv("DATABASE_URL")
-    if database_target is None:
-        if serverless:
-            raise ValueError("Vercel에서는 PostgreSQL DATABASE_URL 설정이 필요합니다.")
-        database_target = os.getenv("DATABASE_PATH", str(ROOT / "data" / "classroom.db"))
-    if serverless and not str(database_target).startswith(("postgresql://", "postgres://")):
-        raise ValueError("Vercel에서는 SQLite 파일 대신 PostgreSQL을 사용해야 합니다.")
+    if not database_target:
+        raise ValueError("PostgreSQL DATABASE_URL 환경변수가 필요합니다.")
+    if not str(database_target).startswith(("postgresql://", "postgres://")):
+        raise ValueError("DATABASE_URL에는 PostgreSQL 연결 문자열을 입력해 주세요.")
     service = Service(database_target,
                       Schedule(schedule_path or os.getenv("SCHEDULE_PATH", str(ROOT / "config" / "schedule.json"))), clock)
     api_key = os.getenv("API_KEY", "") if api_key is None else api_key
@@ -138,14 +135,6 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
     # HTTP 오류를 공통 JSON 응답으로 반환합니다.
     async def http_error(request, exc):
         return await api_error(request, APIError(exc.status_code, "NOT_FOUND" if exc.status_code == 404 else "HTTP_ERROR", str(exc.detail)))
-
-    @app.exception_handler(sqlite3.OperationalError)
-    # DB 잠금은 503, 그 밖의 DB 오류는 500으로 처리합니다.
-    async def database_error(request, exc):
-        logger.error("데이터베이스 오류", exc_info=exc)
-        if "locked" in str(exc).lower() or "busy" in str(exc).lower():
-            return await api_error(request, APIError(503, "SERVICE_UNAVAILABLE", "서버가 사용 중입니다. 잠시 후 다시 시도해 주세요."))
-        return await api_error(request, APIError(500, "INTERNAL_SERVER_ERROR", "데이터를 처리하지 못했습니다."))
 
     @app.exception_handler(psycopg.Error)
     async def postgres_error(request, exc):
@@ -276,7 +265,7 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
                 except APIError as exc:
                     yield 'event: error\ndata: ' + json.dumps({"success": False, "error": {"code": exc.code, "message": exc.message}}, ensure_ascii=False) + '\n\n'
                     return
-                except (psycopg.Error, sqlite3.Error):
+                except psycopg.Error:
                     yield 'event: error\ndata: {"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"데이터베이스 연결을 확인해 주세요."}}\n\n'
                     return
                 current = json.dumps(snapshot, ensure_ascii=False)
