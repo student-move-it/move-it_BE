@@ -9,7 +9,7 @@ SEOUL = ZoneInfo("Asia/Seoul")
 # 임시 테스트: 한국 시간의 오늘 날짜를 유지하고 시각만 17:00으로 고정합니다.
 # 테스트 후 return datetime.now(SEOUL)로 되돌리세요.
 def now_seoul():
-    return datetime.now(SEOUL).replace(hour=17, minute=0, second=0, microsecond=0)
+    return datetime.now(SEOUL)
 
 
 class Schedule:
