@@ -293,7 +293,7 @@ class Service:
             visible = self.visible_movements(db, room["guild_id"], now)
             visible = [dict(row, place=normalize_place(row["place"])) for row in visible]
             visible.sort(key=lambda row: (
-                row["start_period"], row["end_period"], row["place"], row["student_number"]
+                row["place"], row["student_number"], row["start_period"], row["end_period"]
             ))
             moved = len(active) + room["analog"]
             slot = self.schedule.current(now)
