@@ -133,7 +133,7 @@ class Service:
 
         placeholders = ",".join("?" for _ in periods)
         # 묶음의 실제 교시 행을 확인하므로 기간이 지난 이동은 목록에서 제외됩니다.
-        return db.execute(
+        rows = db.execute(
             f"""SELECT r.* FROM movement_ranges AS r
                 WHERE r.guild_id=? AND r.day=?
                 AND EXISTS (
@@ -144,6 +144,14 @@ class Service:
                 )""",
             (guild, now.date().isoformat(), *periods),
         ).fetchall()
+
+        # DB의 등록 범위는 유지하고, 응답의 교시 범위만 아직 끝나지 않은 교시로 좁힙니다.
+        visible = []
+        for row in rows:
+            remaining = [period for period in periods if row["start_period"] <= period <= row["end_period"]]
+            if remaining:
+                visible.append(dict(row, start_period=min(remaining), end_period=max(remaining)))
+        return visible
 
     # 디지털 이동 인원과 아날로그 인원의 합이 정원을 넘는지 검사합니다.
     def check_capacity(self, db, room, analog=None, total=None):
