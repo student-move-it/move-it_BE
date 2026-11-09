@@ -7,10 +7,12 @@ from app.postgres import connect as connect_postgres, PostgresConnection, initia
 
 
 class APIError(Exception):
+    # 응답 상태와 오류 정보를 저장합니다.
     def __init__(self, status, code, message):
         self.status, self.code, self.message = status, code, message
 
 
+# API 오류를 발생시킵니다.
 def fail(status, code, message):
     raise APIError(status, code, message)
 
@@ -43,6 +45,7 @@ def normalize_place(place):
 
 
 class Service:
+    # DB 연결 설정과 시간표를 준비합니다.
     def __init__(self, database, schedule, clock=now_seoul):
         self.database, self.schedule, self.clock = str(database), schedule, clock
         if not self.database.startswith(("postgresql://", "postgres://")):
@@ -51,7 +54,7 @@ class Service:
         self._schema_lock = Lock()
 
     @contextmanager
-    # 첫 DB 요청에서 테이블을 준비합니다. 성공 시 커밋, 오류 시 롤백하고 연결을 닫습니다.
+    # 서버가 켜진 뒤 처음 DB에 연결할 때 테이블을 준비합니다. 성공 시 커밋, 오류 시 롤백하고 연결을 닫습니다.
     def connect(self):
         with connect_postgres(self.database) as raw:
             db = PostgresConnection(raw)
@@ -63,7 +66,7 @@ class Service:
             yield db
 
     @contextmanager
-    # 쓰기를 직렬화하고 날짜 변경 시 이동·아날로그 기록을 초기화합니다.
+    # DB 작업을 한 번에 하나씩 처리하고, 날짜가 바뀌면 이동 기록과 아날로그 인원을 초기화합니다.
     def transaction(self):
         with self.connect() as db:
             lock_transaction(db)
@@ -88,7 +91,7 @@ class Service:
                 for row in rows
             ]}
 
-    # 일일 초기화 조건을 확인합니다.
+    # 로컬 서버가 시작될 때와 실행 중 0.5초마다 기록을 초기화할 때인지 확인합니다.
     def tick(self):
         with self.transaction():
             pass
@@ -198,6 +201,7 @@ class Service:
             # 봇이 보낸 서버 ID로 등록된 반을 한 번 조회합니다. 학번으로 반을 추정하지 않습니다.
             room = self.classroom(db, guild=guild)
             for student in data.students:
+                # 기존 이동과 새 이동의 교시가 하나라도 겹치면 중복입니다.
                 overlap = db.execute(
                     "SELECT 1 FROM movement_ranges WHERE guild_id=? AND student_number=? AND start_period<=? AND end_period>=?",
                     (room["guild_id"], student.studentNumber, end, start),

@@ -173,7 +173,7 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
         return studentNumber
 
     @app.get("/health")
-    # 서버가 응답 가능한 상태인지 확인합니다.
+    # /health 요청에 응답하며 DB 연결 상태는 검사하지 않습니다.
     def health():
         return {"success": True, "status": "ok"}
 
@@ -249,7 +249,7 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
         classNumber = get_parameter(classNumber, None, "classNumber", int)
         initial = await run_in_threadpool(service.snapshot, classNumber)
 
-        # 첫 스냅샷을 보내고 1초마다 변경을 확인합니다. 15초마다 연결 유지 신호를 보냅니다.
+        # 연결 직후 반 현황을 보내고, 이후 1초마다 확인해 변경된 현황만 보냅니다. 15초마다 연결 유지 신호를 보냅니다.
         async def stream():
             started = monotonic_time.monotonic()
             previous = json.dumps(initial, ensure_ascii=False)

@@ -50,9 +50,11 @@ class DatabaseRow(dict):
         return super().__getitem__(key)
 
 
+# 조회 결과의 행 변환기를 만듭니다.
 def row_factory(cursor):
     names = [column.name for column in cursor.description or []]
 
+    # 열 이름과 값을 묶고 날짜를 문자열로 바꿉니다.
     def make_row(values):
         return DatabaseRow({
             name: value.isoformat() if isinstance(value, date) else value
@@ -64,6 +66,7 @@ def row_factory(cursor):
 
 class PostgresConnection:
     """기존 매개변수 SQL을 psycopg 형식으로 전달하는 공통 연결 인터페이스입니다."""
+    # PostgreSQL 연결을 저장합니다.
     def __init__(self, connection):
         self.connection = connection
 
@@ -71,6 +74,7 @@ class PostgresConnection:
         # SQL 값은 문자열에 직접 붙이지 않고 드라이버에 별도 매개변수로 전달합니다.
         return self.connection.execute(query.replace("?", "%s"), params)
 
+    # 같은 SQL을 여러 입력값으로 실행합니다.
     def executemany(self, query, rows):
         cursor = self.connection.cursor()
         cursor.executemany(query.replace("?", "%s"), rows)
@@ -85,12 +89,14 @@ def connect(database_url):
     )
 
 
+# 트랜잭션 잠금과 시간 제한을 설정합니다.
 def lock_transaction(db):
     db.execute("SET LOCAL lock_timeout = '10s'")
     db.execute("SET LOCAL statement_timeout = '15s'")
     db.execute("SELECT pg_advisory_xact_lock(?)", (TRANSACTION_LOCK,))
 
 
+# DB 테이블과 조회 뷰를 준비합니다.
 def initialize_postgres(db):
     lock_transaction(db)
     for statement in POSTGRES_SCHEMA.split(";"):

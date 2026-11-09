@@ -12,6 +12,7 @@ def now_seoul():
 
 
 class Schedule:
+    # 시간표를 읽고 형식을 검사합니다.
     def __init__(self, path: str | Path):
         self.slots = json.loads(Path(path).read_text(encoding="utf-8"))
         numbers = set()
@@ -46,6 +47,7 @@ class Schedule:
         if len(parts) > 2:
             raise ValueError("교시 범위를 확인해 주세요.")
 
+        # 교시 문자열에서 번호를 읽습니다.
         def read_number(part):
             number = part.strip().removesuffix("교시").strip()
 
