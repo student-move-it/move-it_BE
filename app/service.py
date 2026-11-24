@@ -339,6 +339,46 @@ class Service:
                 ]},
             }
 
+    # 선택한 학년의 현재 이동 학생을 장소별로 묶습니다.
+    def grade_movements(self, grade):
+        places = ["세미나실 4-1", "세미나실 4-2", "세미나실 4-3", "세미나실 4-4"]
+        groups = {place: [] for place in places}
+        groups["기타"] = []
+        with self.transaction() as (db, now):
+            rooms = db.execute(
+                "SELECT guild_id, class_number FROM classroom WHERE class_number>=? AND class_number<? ORDER BY class_number",
+                (grade * 10, (grade + 1) * 10),
+            ).fetchall()
+            analog_count = 0
+            for room in rooms:
+                for student in self.active(db, room["guild_id"], now):
+                    place = normalize_place(student["place"])
+                    group_name = place if place in groups else "기타"
+                    groups[group_name].append({
+                        "studentNumber": student["student_number"],
+                        "name": student["name"],
+                        "classNumber": room["class_number"],
+                        "place": place,
+                    })
+                # 장소와 학생 정보가 없는 아날로그 인원은 별도로 합산합니다.
+                analog = db.execute(
+                    "SELECT analog_count FROM analog_count WHERE guild_id=? AND count_date=?",
+                    (room["guild_id"], now.date().isoformat()),
+                ).fetchone()
+                if analog:
+                    analog_count += analog["analog_count"]
+            slot = self.schedule.current(now)
+        result = []
+        for place, students in groups.items():
+            students.sort(key=lambda student: int(student["studentNumber"]))
+            result.append({"place": place, "count": len(students), "students": students})
+        return {
+            "success": True, "grade": grade, "date": now.date().isoformat(),
+            "period": {"currentPeriod": slot["label"], "startTime": slot["startTime"], "endTime": slot["endTime"]},
+            "digitalCount": sum(group["count"] for group in result),
+            "analogCount": analog_count, "groups": result,
+        }
+
     # 현재 교시 이름과 시작·종료 시각을 반환합니다.
     def period(self):
         slot = self.schedule.current(self.clock())

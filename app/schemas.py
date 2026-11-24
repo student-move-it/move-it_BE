@@ -179,3 +179,31 @@ class ClassListItem(BaseModel):
 class ClassListResponse(BaseModel):
     success: Literal[True] = True
     classes: list[ClassListItem]
+
+
+# 관리자 학년별 장소 분류에 사용하는 응답입니다.
+class GradeMovementStudent(Student):
+    classNumber: int
+    place: str
+
+
+class GradePlaceGroup(BaseModel):
+    place: str
+    count: int
+    students: list[GradeMovementStudent]
+
+
+class GradePeriod(BaseModel):
+    currentPeriod: str
+    startTime: str | None
+    endTime: str | None
+
+
+class GradeMovementsResponse(BaseModel):
+    success: Literal[True] = True
+    grade: int
+    date: str
+    period: GradePeriod
+    digitalCount: int
+    analogCount: int
+    groups: list[GradePlaceGroup]

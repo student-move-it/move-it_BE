@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Annotated
 
 from fastapi import Body, Depends, FastAPI, Header, Query, Request, Response
+from fastapi import Path as ApiPath
 from fastapi.exceptions import RequestValidationError
 from fastapi.openapi.utils import get_openapi
 from fastapi.middleware.cors import CORSMiddleware
@@ -22,7 +23,7 @@ from app.schedule import Schedule, now_seoul
 from app.schemas import (
     Analog, AnalogResponse, BatchEditMoveResponse, Classroom, ClassroomResponse,
     CombinedMove, CountsResponse, CurrentMovementsResponse, EditMove, EditMoveResponse,
-    ClassListResponse, ClassSnapshotResponse, ErrorResponse, Move, MoveResponse, PeriodResponse, SuccessResponse,
+    GradeMovementsResponse, ClassListResponse, ClassSnapshotResponse, ErrorResponse, Move, MoveResponse, PeriodResponse, SuccessResponse,
 )
 from app.service import APIError, Service, fail
 
@@ -241,6 +242,12 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
     # 반 코드(1학년 2반=12)를 받아 해당 반의 데이터만 조회합니다.
     def get_class_data(class_number: str):
         return service.snapshot(get_parameter(class_number, None, "classNumber", int))
+
+    @app.get("/grades/{grade}/movements", dependencies=[Depends(admin)],
+             response_model=GradeMovementsResponse, summary="학년별 장소별 현재 이동 현황")
+    # 관리자에게 선택한 학년의 현재 이동 현황을 장소별로 제공합니다.
+    def grade_movements(grade: Annotated[int, ApiPath(ge=1, le=3)]):
+        return service.grade_movements(grade)
 
     @app.get("/period", dependencies=[Depends(authenticate)], response_model=PeriodResponse)
     # 현재 교시 이름과 시작·종료 시각을 반환합니다.
