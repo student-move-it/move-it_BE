@@ -86,7 +86,7 @@ Vercel에서는 API_KEY와 ADMIN_API_KEY를 반드시 서로 다른 값으로 �
 | POST | `/move` | JSON: `students`, `placeAndPeriod`; query: `guildId` 필수. 기존 `periodString`, `place` 형식도 지원 |
 | PATCH | `/move` | query: `guildId`, `studentNumber`, 선택 `sourcePeriod`; JSON: `periodString`, `place` |
 | DELETE | `/move` | query: `guildId`, `studentNumber`; 본문 없음. 해당 학생의 당일 이동 전체 삭제 |
-| DELETE | `/move/all` | 관리자 키 필수. query: `guildId`; 당일 이동 전체 삭제 및 아날로그 인원 0으로 초기화 |
+| DELETE | `/classes/{class_number}/moves` | 관리자 키 필수. 경로의 반 번호로 당일 이동 전체 삭제 및 아날로그 인원 0으로 초기화 |
 | PATCH | `/analog-count` | query: `guildId`; JSON: `change` |
 | GET | `/student-counts` | query: `classNumber` |
 | GET | `/movedStudents` | query: `classNumber` |
@@ -243,7 +243,7 @@ PostgreSQL에서는 트랜잭션 단위 advisory lock으로 날짜 초기화·�
 
 선택적으로 상위 폴더의 tests/test_postgres_integration.py는 TEST_POSTGRES_URL에 직접 연결 URL(pooler가 아닌 URL)을 지정한 전용 테스트 DB에서 실행합니다. 임시 스키마를 만들고 제거하며 운영 Neon URL을 테스트 변수에 넣지 마세요. 연결 정보가 없으면 해당 테스트는 건너뜁니다.
 
-전원 복귀: `DELETE /move/all?guildId=서버ID`에 `X-API-Key`로 관리자 키를 전달합니다. 해당 서버의 당일 미래 예약도 함께 삭제하며, 다른 서버와 교실 설정은 유지합니다. 이동 기록이 없어도 성공합니다.
+전원 복귀: `DELETE /classes/12/moves`에 `X-API-Key`로 관리자 키를 전달합니다. 해당 반의 당일 미래 예약도 함께 삭제하며, 다른 반과 교실 설정은 유지합니다. 이동 기록이 없어도 성공합니다.
 
 
 ## 관리자 학년별 이동 현황

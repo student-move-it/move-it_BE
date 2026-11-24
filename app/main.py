@@ -211,10 +211,11 @@ def create_app(database=None, schedule_path=None, clock=now_seoul, api_key=None,
     def return_move(guildId: Annotated[str, Query(pattern=r"^[0-9]{1,32}$")], students=Depends(targets)):
         return service.return_moves(guildId, students)
 
-    @app.delete("/move/all", dependencies=[Depends(admin)], response_model=SuccessResponse)
-    # 관리자 권한으로 해당 서버의 당일 이동과 아날로그 인원을 초기화합니다.
-    def return_all_moves(guildId: Annotated[str, Query(pattern=r"^[0-9]{1,32}$")]):
-        return service.return_all_moves(guildId)
+    @app.delete("/classes/{class_number}/moves", dependencies=[Depends(admin)],
+                response_model=SuccessResponse, summary="반별 전원 복귀")
+    # 관리자 권한으로 해당 반의 당일 이동과 아날로그 인원을 초기화합니다.
+    def return_all_moves(class_number: str):
+        return service.return_all_moves(get_parameter(class_number, None, "classNumber", int))
 
     @app.patch("/analog-count", dependencies=[Depends(authenticate)], response_model=AnalogResponse)
     # 아날로그 이동 인원을 요청한 수만큼 변경합니다.

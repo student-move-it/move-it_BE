@@ -284,10 +284,10 @@ class Service:
                     fail(404, "MOVEMENT_NOT_FOUND", "복귀 처리할 이동 정보가 없습니다.")
         return {"success": True, "message": "복귀 처리 성공"}
 
-    # 해당 서버의 당일 이동 전체를 삭제하고 아날로그 인원을 0으로 만듭니다.
-    def return_all_moves(self, guild):
+    # 반 번호로 교실을 찾아 당일 이동 전체와 아날로그 인원을 초기화합니다.
+    def return_all_moves(self, class_number):
         with self.transaction() as (db, now):
-            room = self.classroom(db, guild=guild)
+            room = self.classroom(db, class_number=class_number)
             day = now.date().isoformat()
             # 미래 교시 예약도 함께 삭제합니다.
             db.execute(
