@@ -284,6 +284,25 @@ class Service:
                     fail(404, "MOVEMENT_NOT_FOUND", "복귀 처리할 이동 정보가 없습니다.")
         return {"success": True, "message": "복귀 처리 성공"}
 
+    # 해당 서버의 당일 이동 전체를 삭제하고 아날로그 인원을 0으로 만듭니다.
+    def return_all_moves(self, guild):
+        with self.transaction() as (db, now):
+            room = self.classroom(db, guild=guild)
+            day = now.date().isoformat()
+            # 미래 교시 예약도 함께 삭제합니다.
+            db.execute(
+                "DELETE FROM movement WHERE guild_id=? AND move_date=?",
+                (room["guild_id"], day),
+            )
+            db.execute(
+                """INSERT INTO analog_count(guild_id, count_date, analog_count)
+                   VALUES (?, ?, 0)
+                   ON CONFLICT(guild_id, count_date)
+                   DO UPDATE SET analog_count=0""",
+                (room["guild_id"], day),
+            )
+        return {"success": True, "message": "전원 복귀가 처리되었습니다."}
+
     # 음수와 정원 초과를 막고 날짜별 아날로그 인원을 저장합니다.
     def change_analog(self, guild, change):
         with self.transaction() as (db, now):
