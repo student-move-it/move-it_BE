@@ -260,13 +260,36 @@ class Service:
             room = self.classroom(db, guild=guild)
             for student in students:
                 rows = self.target(db, now, room, student, start, end, source_period)
+                remaining = []
                 for selected in rows:
-                    db.execute("DELETE FROM movement WHERE registration_id=?", (selected["id"],))
+                    # 표시 범위가 아닌 원래 기록을 읽어 종료된 교시도 보존합니다.
+                    original = db.execute(
+                        "SELECT * FROM movement WHERE registration_id=? AND guild_id=? AND student_number=? AND move_date=? ORDER BY period",
+                        (selected["id"], guild, student, now.date().isoformat()),
+                    ).fetchall()
+                    remaining.extend(dict(item) for item in original if not start <= item["period"] <= end)
+                    db.execute(
+                        "DELETE FROM movement WHERE registration_id=? AND guild_id=? AND student_number=? AND move_date=?",
+                        (selected["id"], guild, student, now.date().isoformat()),
+                    )
+                # 수정하지 않은 교시는 연속된 범위별로 다시 묶어 보존합니다.
+                segments = []
+                for item in sorted(remaining, key=lambda item: item["period"]):
+                    if segments and item["period"] == segments[-1][-1]["period"] + 1 and item["place"] == segments[-1][-1]["place"]:
+                        segments[-1].append(item)
+                    else:
+                        segments.append([item])
+                for segment in segments:
+                    first, last = segment[0], segment[-1]
+                    period_string = (f"{first['period']}교시" if first["period"] == last["period"]
+                                     else f"{first['period']}~{last['period']}교시")
+                    self.insert_movement(db, guild, student, first["student_name"], first["move_date"],
+                                         first["period"], last["period"], period_string, first["place"])
                 row = rows[0]
                 if db.execute("SELECT 1 FROM movement_ranges WHERE guild_id=? AND student_number=? AND start_period<=? AND end_period>=?", (guild, student, end, start)).fetchone():
                     fail(409, "MOVEMENT_ALREADY_EXISTS", "해당 교시에 이미 이동 등록된 학생이 있습니다.")
                 self.insert_movement(db, guild, student, row["name"], row["day"],
-                                     start, end, data.periodString, data.place, row["id"])
+                                     start, end, data.periodString, data.place)
                 results.append({"studentNumber": student, "name": row["name"], **data.model_dump()})
             self.check_capacity(db, room)
         return {"success": True, "message": "이동 현황이 수정되었습니다.", **({"movement": results[0]} if len(results) == 1 else {"movements": results})}
